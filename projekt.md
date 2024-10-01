@@ -32,3 +32,7 @@ Projektplan:
 - databeskrivelse
 - modelbeskrivelse
 - metode
+
+
+Var ensemble flere forskellige llm
+MLP?
