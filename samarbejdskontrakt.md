@@ -1,7 +1,7 @@
 # SAMARBEJDSKONTRAKT
 ## Projekttitel:
-## Gruppedeltagere:
-## Vejleder:
+## Gruppedeltagere: Mads Bjørke Vejbæk (s225783), William Krøyer Stentzer (s214645)
+## Vejleder: Michael Riis Andersen, Morten Mørup
 
 ### MØDER
 
