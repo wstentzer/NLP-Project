@@ -1,5 +1,5 @@
 # SAMARBEJDSKONTRAKT
-## Projekttitel:
+## Projekttitel: DEUCE: Distillation of Ensembles for Uncertainty of Classification Estimation
 ## Gruppedeltagere: Mads Bjørke Vejbæk (s225783), William Krøyer Stentzer (s214645)
 ## Vejleder: Michael Riis Andersen, Morten Mørup
 
