@@ -64,3 +64,6 @@ Find a different dataset maybe in danish and test the models on that
 Decide on a LLM and train a MLP
 
 New meeting time: Wednsday 10.15 from the 16 october
+
+## Week 6 10-10-24:
+
