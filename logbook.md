@@ -12,10 +12,36 @@ Walked through the research paper we recived from our supervisor, in preperation
 We also skipped out meetings as the we other assigment that were urgent.
 
 ## Week 4 24-09-24:
-Walked trough and talked further about the research paper we reciveed from our supervisor. And also som we found ourselves, but unfortunately they weren't as relevant as we hoped.
+Talked further about the research paper we reciveed from our supervisor. And also som we found ourselves, but unfortunately they weren't as relevant as we hoped.
 
 ## Week 5 01-10-24:
 We started on the projekt plan (and everything that includes). We need to finish project canvas, create a garnt chart and read through the introduction and data description to ensure its understandable. We also wrote the coorporation agreement, which we need to sign before sunday. 
+
+## Week 6 08-10-24:
+
+Started writing the code in a jupyter notebook.
+
+## Week 7 15-10-24:
+
+One of the groups memebers has fallen ill so metting is postponed to next week
+
+## Week 8 22-10-24:
+
+Caught up all group members on the Supervisor meeting last week. And begun further work on the code implementaion
+
+## Week 9 29-10-24:
+
+We kept working on the implementation. As the most important thing right now is getting a working prototype.
+
+## Week 10 05-11-24:
+
+From the last Supervisor meeting we found some strange behaivior with regards to the accuracy of the ensemble.
+Which we will insvestigate and hopefully fix.
+
+## Week 11 12-11-24:
+
+Implement the metrics and histograms, that were suggested from our supervisor, to get a better understanding of out models perfomance 
+
 
 # Supervisor Meetings
 
@@ -67,3 +93,23 @@ New meeting time: Wednsday 10.15 from the 16 october
 
 ## Week 6 10-10-24:
 
+Find some other papers on Ensemble to validate that our accuracy is within a reasonable range of that
+
+## Week 7 17-10-24:
+
+No notes. Just keep working on the implementation of the Ensemble
+
+## Week 8 23-10-24:
+
+Plot accuracy for the MLPs and the ensemble with size 1 to N
+
+## Week 9 30-10-24:
+
+It looks like we have a data leak in the training and validation. So we need to investigate that and fix it for next week
+
+## Week 10 06-11-24:
+
+Create histograms over the following metrics to further validate the competence of the ensemble 
+- Accuracy
+- Negative Log Likelihood
+- Expected Calibration Error
