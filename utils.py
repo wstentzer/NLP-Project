@@ -6,6 +6,7 @@ from torch.utils.data import TensorDataset, DataLoader
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from datasets import load_dataset
 from tqdm import tqdm
+import matplotlib.pyplot as plt
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import accuracy_score, log_loss, f1_score
 
@@ -81,6 +82,81 @@ def eval_metrics(true_labels, preds, probs, average='weighted'):
     f1 = f1_score(true_labels, preds, average=average)
     
     return acc, nll, ece, f1
+
+def plot_reliability_diagram(prob_pos, true_labels, n_bins=10):
+    """
+    Compute and plot a reliability diagram.
+    
+    Parameters:
+    - prob_pos: 1D array of predicted probabilities for the positive class.
+    - true_labels: 1D array of ground truth binary labels.
+    - n_bins: Number of bins in the diagram.
+    """
+    # Define bins from 0 to 1
+    bins = np.linspace(0, 1, n_bins + 1)
+    
+    # Arrays to store the bin means and fraction of positives
+    bin_preds = np.zeros(n_bins)
+    bin_true = np.zeros(n_bins)
+    bin_counts = np.zeros(n_bins)
+    
+    for i in range(n_bins):
+        # Find samples with predictions in the current bin.
+        indices = np.where((prob_pos >= bins[i]) & (prob_pos < bins[i+1]))[0]
+        if len(indices) > 0:
+            bin_preds[i] = np.mean(prob_pos[indices])
+            bin_true[i] = np.mean(true_labels[indices])
+            bin_counts[i] = len(indices)
+    
+    # Plot the reliability diagram
+    plt.figure(figsize=(8, 6))
+    plt.plot(bin_preds, bin_true, "s-", label="Ensemble")
+    plt.plot([0, 1], [0, 1], "k:", label="Perfectly calibrated")
+    plt.title("Reliability Diagram (Manual Binning)")
+    plt.xlabel("Mean Predicted Probability")
+    plt.ylabel("Fraction of Positives")
+    plt.legend()
+    plt.show()
+    
+    # Optionally print the bin counts for analysis
+    print("Bin counts:", bin_counts)
+
+def evaluate_ensemble(models, val_X, val_y):
+        ensemble_outputs = []
+        with torch.no_grad():
+            for m in models:
+                m.eval()
+                outputs = m(val_X.to(device))
+                probs = nn.functional.softmax(outputs, dim=1).cpu().numpy()
+                ensemble_outputs.append(probs)
+        ensemble_probs = np.mean(ensemble_outputs, axis=0)
+        ensemble_preds = np.argmax(ensemble_probs, axis=1)
+        # eval_metrics should return: accuracy, nll, ece, f1
+        acc, nll, ece, f1 = eval_metrics(val_y.numpy(), ensemble_preds, ensemble_probs, average='weighted')
+        return acc, nll, ece, f1
+
+def evaluate_ensemble_for_plot(models, val_X):
+        ensemble_probs = []
+        with torch.no_grad():
+            for m in models:
+                m.eval()
+                outputs = m(val_X.to(device))
+                probs = nn.functional.softmax(outputs, dim=1).cpu().numpy()
+                ensemble_probs.append(probs)
+        ensemble_probs = np.stack(ensemble_probs)
+        ensemble_mean = np.mean(ensemble_probs, axis=0)
+        ensemble_var = np.var(ensemble_probs, axis=0)
+        ensemble_entropy = -np.sum(ensemble_mean * np.log(ensemble_mean + 1e-9), axis=1)
+        
+        ensemble_probs = {
+        'probs': ensemble_probs,
+        'mean': ensemble_mean,
+        'var': ensemble_var,
+        'entropy': ensemble_entropy
+        }
+        
+        return ensemble_probs
+
 
 def sst_process_embeddings_and_labels(
     train_embeddings_file='train_embeddings.npy',
@@ -223,6 +299,148 @@ def sst_process_embeddings_and_labels(
             validation_embeddings, validation_labels,
             test_embeddings, test_labels)
 
+def imdb_process_embeddings_and_labels(
+    imdb_train_embeddings_file='imdb_train_embeddings.npy',
+    imdb_train_labels_file='imdb_train_labels.npy',
+    imdb_test_embeddings_file='imdb_test_embeddings.npy',
+    imdb_test_labels_file='imdb_test_labels.npy',
+    imdb_unsupervised_embeddings_file='imdb_unsupervised_embeddings.npy',
+    imdb_unsupervised_labels_file='imdb_unsupervised_labels.npy',
+    model_checkpoint="HuggingFaceTB/SmolLM-1.7B-Instruct",
+    dataset_name="stanfordnlp/imdb",
+    max_length=128,
+    device=device
+):
+    """
+    Load or compute embeddings and labels for the train, validation, and test splits.
+    
+    If the files exist, the embeddings and labels are loaded from disk.
+    Otherwise, the function:
+      1. Loads the tokenizer and model.
+      2. Streams the specified dataset.
+      3. Extracts embeddings from the last hidden state of the model.
+      4. Standardizes the embeddings.
+      5. Saves the embeddings and labels to disk.
+      
+    Parameters:
+        train_embeddings_file (str): Path to save or load train embeddings.
+        train_labels_file (str): Path to save or load train labels.
+        validation_embeddings_file (str): Path to save or load validation embeddings.
+        validation_labels_file (str): Path to save or load validation labels.
+        test_embeddings_file (str): Path to save or load test embeddings.
+        test_labels_file (str): Path to save or load test labels.
+        model_checkpoint (str): Hugging Face model checkpoint.
+        dataset_name (str): Name of the dataset to load.
+        dataset_config (str): Configuration name of the dataset.
+        max_length (int): Maximum sequence length for tokenization.
+        device (torch.device): Device on which to run the model.
+    
+    Returns:
+        tuple: A tuple containing:
+            - train_embeddings (np.ndarray)
+            - train_labels (np.ndarray)
+            - validation_embeddings (np.ndarray)
+            - validation_labels (np.ndarray)
+            - test_embeddings (np.ndarray)
+            - test_labels (np.ndarray)
+    """
+    
+    # Check if all files exist
+    if (os.path.exists(imdb_train_embeddings_file) and os.path.exists(imdb_train_labels_file) and
+        os.path.exists(imdb_test_embeddings_file) and os.path.exists(imdb_test_labels_file) and
+        os.path.exists(imdb_unsupervised_embeddings_file) and os.path.exists(imdb_unsupervised_labels_file)):
+        
+        # Load embeddings and labels from disk
+        imdb_train_embeddings = np.load(imdb_train_embeddings_file)
+        imdb_train_labels = np.load(imdb_train_labels_file)
+        imdb_test_embeddings = np.load(imdb_test_embeddings_file)
+        imdb_test_labels = np.load(imdb_test_labels_file)
+        imdb_unsupervised_embeddings = np.load(imdb_unsupervised_embeddings_file)
+        imdb_unsupervised_labels = np.load(imdb_unsupervised_labels_file)
+        print("Loaded train, test, and unsupervised embeddings and labels from disk.")
+    
+    else:
+        # Initialize tokenizer and model from the Hugging Face model hub.
+        tokenizer = AutoTokenizer.from_pretrained(model_checkpoint)
+        model = AutoModelForCausalLM.from_pretrained(model_checkpoint)
+        model.to(device)
+        
+        # Load the dataset using streaming to handle large datasets efficiently.
+        dataset = load_dataset(dataset_name, streaming=True)
+        
+        # Initialize lists to store embeddings and labels.
+        imdb_train_embeddings_list, imdb_train_labels_list = [], []
+        imdb_test_embeddings_list, imdb_test_labels_list = [], []
+        imdb_unsupervised_embeddings_list, imdb_unsupervised_labels_list = [], []
+        
+        def extract_embeddings(streamed_dataset, embeddings_list, labels_list):
+            """
+            Extract embeddings from dataset examples using the last layer hidden state.
+            The embeddings are averaged over the sequence length.
+            """
+            for example in tqdm(streamed_dataset, desc="Processing examples"):
+                # Tokenize the sentence from the dataset
+                inputs = tokenizer(
+                    example['text'],
+                    return_tensors='pt',
+                    padding=True,
+                    truncation=True,
+                    max_length=max_length
+                ).to(device)
+                
+                # Forward pass through the model without gradient calculations.
+                with torch.no_grad():
+                    outputs = model(**inputs, output_hidden_states=True)
+                
+                # Extract the last hidden state and calculate the mean over the sequence length.
+                hidden_states = outputs.hidden_states[-1]  # take the last layer
+                embeddings = hidden_states.mean(dim=1).cpu().numpy()  # shape becomes (1, hidden_size)
+                embeddings_list.append(embeddings.squeeze())  # remove redundant dimensions
+                labels_list.append(example['label'])
+        
+        # Extract embeddings for each split.
+        extract_embeddings(dataset['train'], imdb_train_embeddings_list, imdb_train_labels_list)
+        extract_embeddings(dataset['test'], imdb_test_embeddings_list, imdb_test_labels_list)
+        extract_embeddings(dataset['unsupervised'], imdb_unsupervised_embeddings_list, imdb_unsupervised_labels_list)
+
+        # Convert lists to numpy arrays for further processing.
+        imdb_train_embeddings = np.vstack(imdb_train_embeddings_list)
+        imdb_train_labels = np.array(imdb_train_labels_list)
+        imdb_test_embeddings = np.vstack(imdb_test_embeddings_list)
+        imdb_test_labels = np.array(imdb_test_labels_list)
+        imdb_unsupervised_embeddings = np.vstack(imdb_unsupervised_embeddings_list)
+        imdb_unsupervised_labels = np.array(imdb_unsupervised_labels_list)
+        
+        # Standardize the embeddings using StandardScaler.
+        scaler = StandardScaler()
+        imdb_train_embeddings = scaler.fit_transform(imdb_train_embeddings)
+        imdb_test_embeddings = scaler.transform(imdb_test_embeddings)
+        imdb_unsupervised_embeddings = scaler.transform(imdb_unsupervised_embeddings)
+        
+        # Save the processed data to disk for future runs.
+        np.save(imdb_train_embeddings_file, imdb_train_embeddings)
+        np.save(imdb_train_labels_file, imdb_train_labels)
+        np.save(imdb_test_embeddings_file, imdb_test_embeddings)
+        np.save(imdb_test_labels_file, imdb_test_labels)
+        np.save(imdb_unsupervised_embeddings_file, imdb_unsupervised_embeddings)
+        np.save(imdb_unsupervised_labels_file, imdb_unsupervised_labels)
+        
+        print("Saved train, test, and unsupervised embeddings and labels to disk.")
+    
+    # Log the shapes of the embeddings and labels.
+    print(f"IMDB Train embeddings shape: {imdb_train_embeddings.shape}")
+    print(f"IMDB Train labels shape: {imdb_train_labels.shape}")
+    print(f"IMDB Test embeddings shape: {imdb_test_embeddings.shape}")
+    print(f"IMDB Test labels shape: {imdb_test_labels.shape}")
+    print(f"IMDB Unsupervised embeddings shape: {imdb_unsupervised_embeddings.shape}")
+    print(f"IMDB Unsupervised labels shape: {imdb_unsupervised_labels.shape}")
+    
+    return (imdb_train_embeddings, imdb_train_labels,
+            imdb_test_embeddings, imdb_test_labels,
+            imdb_unsupervised_embeddings, imdb_unsupervised_labels)
+
+
+
 def evaluate_models(test_embeddings, test_labels, student_model, ensemble_models, device, batch_size=32):
     """
     Evaluates three models on the given test dataset:
@@ -331,3 +549,25 @@ def generate_soft_targets(ensemble_models, train_X):
     all_probs = np.stack(all_probs)  # Shape: (N_models, N_samples, N_classes)
     soft_targets = np.mean(all_probs, axis=0)
     return soft_targets
+
+
+def distillation_loss(y_student_logits, y_true_labels, y_teacher_probs, T=2.0, alpha=0.7):
+    """
+    y_student_logits: Logits output by the student model
+    y_true_labels: Ground truth labels
+    y_teacher_probs: Soft targets (probabilities) from the teacher (ensemble)
+    T: Temperature parameter
+    alpha: Weighting factor between soft and hard targets
+    """
+    # Cross-Entropy Loss with true labels (hard targets)
+    ce_loss = nn.CrossEntropyLoss()(y_student_logits, y_true_labels)
+    
+    # KL Divergence Loss with soft targets (from teacher)
+    log_student_probs = nn.functional.log_softmax(y_student_logits / T, dim=1)
+    teacher_probs_T = torch.tensor(y_teacher_probs, dtype=torch.float32).to(y_student_logits.device)
+    kl_loss = nn.KLDivLoss(reduction='batchmean')(log_student_probs, teacher_probs_T)
+    
+    # Combined Loss
+    loss = alpha * ce_loss + (1 - alpha) * (T ** 2) * kl_loss
+    # loss = alpha
+    return loss
