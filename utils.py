@@ -300,15 +300,15 @@ def sst_process_embeddings_and_labels(
             test_embeddings, test_labels)
 
 def imdb_process_embeddings_and_labels(
-    imdb_train_embeddings_file='imdb_train_embeddings.npy',
-    imdb_train_labels_file='imdb_train_labels.npy',
-    imdb_test_embeddings_file='imdb_test_embeddings.npy',
-    imdb_test_labels_file='imdb_test_labels.npy',
-    imdb_unsupervised_embeddings_file='imdb_unsupervised_embeddings.npy',
-    imdb_unsupervised_labels_file='imdb_unsupervised_labels.npy',
+    imdb_train_embeddings_file='imdb_long_train_em.npy',
+    imdb_train_labels_file='imdb_long_train_la.npy',
+    imdb_test_embeddings_file='imdb_long_test_em.npy',
+    imdb_test_labels_file='imdb_long_test_la.npy',
+    imdb_unsupervised_embeddings_file='imdb_long_unsuper_em.npy',
+    imdb_unsupervised_labels_file='imdb_long_unsuper_la.npy',
     model_checkpoint="HuggingFaceTB/SmolLM-1.7B-Instruct",
     dataset_name="stanfordnlp/imdb",
-    max_length=128,
+    max_length=512,
     device=device
 ):
     """

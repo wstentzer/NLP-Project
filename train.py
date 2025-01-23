@@ -277,6 +277,8 @@ def train_student_model(StudentMLP, train_embeddings, train_labels, val_embeddin
     
     # Early stopping trackers
     best_f1 = -np.inf  # Higher F1 is better
+    best_ece = np.inf
+    best_nll = np.inf
     best_model_state = None
     early_stopping_counter = 0
     
@@ -322,18 +324,19 @@ def train_student_model(StudentMLP, train_embeddings, train_labels, val_embeddin
         print(f"Validation -- Accuracy: {acc:.4f}, NLL: {nll:.4f}, ECE: {ece:.4f}, F1 Score: {f1:.4f}")
         
         # Check for improvement in F1 score
-        if f1 > best_f1:
+        if nll < best_nll or ece < best_ece:
             best_f1 = f1
+            best_nll = nll
+            best_ece = ece
             best_model_state = student_model.state_dict()
             early_stopping_counter = 0
-            print(f"Validation F1 improved to {f1:.4f}.")
         else:
             early_stopping_counter += 1
-            print(f"No improvement in F1 for {early_stopping_counter} consecutive epoch(s).")
+            print(f"No improvement for {early_stopping_counter} consecutive epoch(s).")
         
         # If F1 hasn't improved for 'patience' epochs, stop training early.
         if early_stopping_counter >= patience:
-            print(f"Early stopping triggered at epoch {epoch+1}. Restoring best model with F1 = {best_f1:.4f}.")
+            print(f"Early stopping triggered at epoch {epoch+1}. Restoring best model.")
             if best_model_state is not None:
                 student_model.load_state_dict(best_model_state)
             break
