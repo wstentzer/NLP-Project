@@ -11,7 +11,6 @@ from utils import *
 def train_ensemble_with_early_stopping(train_embeddings, train_labels,
                                        validation_embeddings, validation_labels,
                                        MLP, N=10, batch_size=2024, epochs=10,
-                                       hidden_size=128,
                                        model_patience=3, ensemble_patience=2):
     """
     Trains an ensemble of MLPs with individual early stopping and ensemble-level early stopping
@@ -72,7 +71,7 @@ def train_ensemble_with_early_stopping(train_embeddings, train_labels,
     for n in range(1, N + 1):
         print(f"\nTraining MLP {n}/{N}")
         
-        model = MLP(input_size, hidden_dim1=hidden_size, output_size=2).to(device)
+        model = MLP(input_size, output_size=2).to(device)
         criterion = nn.CrossEntropyLoss()
         optimizer = optim.Adam(model.parameters(), lr=1e-3)
         
@@ -296,7 +295,7 @@ def train_student_model(StudentMLP, train_embeddings, train_labels, val_embeddin
             batch_end = batch_start + inputs.size(0)
             y_teacher_probs = soft_targets_tensor[batch_start:batch_end].to(device)
             
-            # Compute the distillation loss (assumes your function "distillation_loss" is defined)
+            # Compute the distillation loss
             loss = distillation_loss(outputs, labels, y_teacher_probs, T=T, alpha=alpha)
             loss.backward()
             optimizer.step()
