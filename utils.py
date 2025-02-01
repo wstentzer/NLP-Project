@@ -9,6 +9,7 @@ from tqdm import tqdm
 import matplotlib.pyplot as plt
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import accuracy_score, log_loss, f1_score
+from sklearn.calibration import calibration_curve
 
 if torch.backends.mps.is_available():
     device = torch.device('mps')
@@ -441,81 +442,321 @@ def imdb_process_embeddings_and_labels(
 
 
 
-def evaluate_models(test_embeddings, test_labels, student_model, ensemble_models, device, batch_size=32):
-    """
-    Evaluates three models on the given test dataset:
-    1. Student model.
-    2. An individual model (first model from the ensemble).
-    3. The ensemble (averaged softmax probabilities from all models in ensemble_models).
+# def evaluate_models(test_embeddings, test_labels, student_model, ensemble_models, device, batch_size=32):
+#     """
+#     Evaluates three models on the given test dataset:
+#     1. Student model.
+#     2. An individual model (first model from the ensemble).
+#     3. The ensemble (averaged softmax probabilities from all models in ensemble_models).
 
+#     Parameters:
+#     - test_embeddings (np.ndarray): The embeddings for the test dataset.
+#     - test_labels (np.ndarray): The true labels for the test dataset.
+#     - student_model (torch.nn.Module): The student model to evaluate.
+#     - ensemble_models (list of torch.nn.Module): A list of models constituting the ensemble.
+#     - device (torch.device): The device on which computations are performed.
+#     - batch_size (int): Batch size used for DataLoader (default: 32).
+
+#     Returns:
+#     - metrics_dict (dict): A dictionary containing the evaluation metrics for
+#       'student', 'individual', and 'ensemble' models.
+#       Each entry is a tuple: (accuracy, nll, ece, f1)
+#     """
+
+#     # Convert embeddings and labels to tensors.
+#     test_X = torch.from_numpy(test_embeddings).float()
+#     test_y = torch.from_numpy(test_labels).long()
+
+#     # Optionally create a DataLoader (if batch processing is desired)
+#     test_dataset = TensorDataset(test_X, test_y)
+#     test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
+
+#     # Convert true labels to a NumPy array for eval_metrics function
+#     true_labels = test_y.numpy()
+
+#     # Dictionary to store metrics for each model.
+#     metrics_dict = {}
+
+#     # -------------------------
+#     # Evaluation for Student Model
+#     # -------------------------
+#     student_model.to(device)
+#     student_model.eval()
+#     with torch.no_grad():
+#         # Here, we run inference on the entire test_X.
+#         outputs = student_model(test_X.to(device))
+#         # Apply softmax to obtain probabilities
+#         probs = nn.functional.softmax(outputs, dim=1).cpu().numpy()
+#         # Compute predicted classes
+#         preds = np.argmax(probs, axis=1)
+        
+#         # Compute evaluation metrics (you need to have an eval_metrics function defined)
+#         acc, nll, ece, f1 = eval_metrics(true_labels, preds, probs, average='weighted')
+#         metrics_dict['student'] = (acc, nll, ece, f1)
+
+#     # Print student model metrics (optional)
+#     print(f"Student -- Accuracy: {acc:.4f}, NLL: {nll:.4f}, ECE: {ece:.4f}, F1 Score: {f1:.4f}")
+
+#     # -------------------------
+#     # Evaluation for an Individual Model (first model in ensemble_models)
+#     # -------------------------
+#     individual_model = ensemble_models[0]
+#     individual_model.to(device)
+#     individual_model.eval()
+#     with torch.no_grad():
+#         outputs = individual_model(test_X.to(device))
+#         probs = nn.functional.softmax(outputs, dim=1).cpu().numpy()
+#         preds = np.argmax(probs, axis=1)
+        
+#     acc, nll, ece, f1 = eval_metrics(true_labels, preds, probs, average='weighted')
+#     metrics_dict['individual'] = (acc, nll, ece, f1)
+
+#     print(f"Individual -- Accuracy: {acc:.4f}, NLL: {nll:.4f}, ECE: {ece:.4f}, F1 Score: {f1:.4f}")
+
+#     # -------------------------
+#     # Evaluation for the Ensemble Model
+#     # -------------------------
+#     ensemble_outputs = []
+#     for model in ensemble_models:
+#         model.to(device)
+#         model.eval()
+#         with torch.no_grad():
+#             outputs = model(test_X.to(device))
+#             probs = nn.functional.softmax(outputs, dim=1).cpu().numpy()
+#             ensemble_outputs.append(probs)
+
+#     # Average the probabilities from all ensemble models.
+#     ensemble_probs = np.mean(ensemble_outputs, axis=0)
+#     ensemble_preds = np.argmax(ensemble_probs, axis=1)
+
+#     acc, nll, ece, f1 = eval_metrics(true_labels, ensemble_preds, ensemble_probs, average='weighted')
+#     metrics_dict['ensemble'] = (acc, nll, ece, f1)
+
+#     print(f"Ensemble -- Accuracy: {acc:.4f}, NLL: {nll:.4f}, ECE: {ece:.4f}, F1 Score: {f1:.4f}")
+
+#     return metrics_dict
+
+# ------------------------------------------------------------------------------
+# Define a consistent color mapping for the models.
+# ------------------------------------------------------------------------------
+model_colors = {
+    'Student': 'red',
+    'Individual': 'green',
+    'Ensemble': 'blue'
+}
+
+# ------------------------------------------------------------------------------
+# Plotting Helper Functions (with Dataset Information)
+# ------------------------------------------------------------------------------
+
+def plot_reliability_diagram_multi(true_labels, probs_dict, model_colors, n_bins=10, dataset_title="", trained_dataset=""):
+    """
+    Plots a reliability diagram for multiple models on the same plot,
+    using a consistent color for each model.
+    
+    The title includes the evaluation dataset and the training dataset.
+    """
+    plt.figure(figsize=(6,6))
+    for model_name, probs in probs_dict.items():
+        # For binary classification, assume positive class is at index 1.
+        positive_probs = probs[:, 1]
+        prob_true, prob_pred = calibration_curve(true_labels, positive_probs, n_bins=n_bins)
+        plt.plot(prob_pred, prob_true, marker='o', label=model_name, color=model_colors[model_name])
+    plt.plot([0, 1], [0, 1], linestyle='--', color='gray', label='Perfect Calibration')
+    plt.xlabel('Mean Predicted Probability')
+    plt.ylabel('Fraction of Positives')
+    plt.title(f"Reliability Diagram ({dataset_title}) - Trained on {trained_dataset}")
+    plt.legend()
+    plt.show()
+
+def plot_confidence_histogram_side_by_side(probs_dict, model_colors, bins=20, dataset_title="", trained_dataset=""):
+    """
+    Plots separate confidence histograms side-by-side for each model,
+    each with a consistent color. The overall figure title includes dataset info.
+    """
+    model_names = list(probs_dict.keys())
+    num_models = len(model_names)
+    fig, axes = plt.subplots(1, num_models, figsize=(6 * num_models, 4))
+    
+    if num_models == 1:
+        axes = [axes]
+    
+    for ax, model_name in zip(axes, model_names):
+        confidences = np.max(probs_dict[model_name], axis=1)
+        ax.hist(confidences, bins=bins, density=True, color=model_colors[model_name], alpha=0.7)
+        ax.set_title(f"{model_name} Confidence")
+        ax.set_xlabel("Max Softmax Probability")
+        ax.set_ylabel("Density")
+    fig.suptitle(f"Confidence Histogram ({dataset_title}) - Trained on {trained_dataset}")
+    plt.tight_layout(rect=[0, 0, 1, 0.92])
+    plt.show()
+
+def plot_entropy_histogram_side_by_side(probs_dict, model_colors, bins=20, dataset_title="", trained_dataset=""):
+    """
+    Plots separate entropy histograms side-by-side for each model,
+    each with a consistent color. The overall figure title includes dataset info.
+    
+    Predictive entropy is computed as:
+        H(p) = -sum(p * log(p + epsilon))
+    """
+    epsilon = 1e-12
+    model_names = list(probs_dict.keys())
+    num_models = len(model_names)
+    fig, axes = plt.subplots(1, num_models, figsize=(6 * num_models, 4))
+    
+    if num_models == 1:
+        axes = [axes]
+    
+    for ax, model_name in zip(axes, model_names):
+        entropies = -np.sum(probs_dict[model_name] * np.log(probs_dict[model_name] + epsilon), axis=1)
+        ax.hist(entropies, bins=bins, density=True, color=model_colors[model_name], alpha=0.7)
+        ax.set_title(f"{model_name} Entropy")
+        ax.set_xlabel("Predictive Entropy")
+        ax.set_ylabel("Density")
+    fig.suptitle(f"Entropy Histogram ({dataset_title}) - Trained on {trained_dataset}")
+    plt.tight_layout(rect=[0, 0, 1, 0.92])
+    plt.show()
+
+def compute_mutual_information(ensemble_outputs, ensemble_probs):
+    """
+    Computes the mutual information (MI) for each sample given an ensemble.
+    
+    MI = H(ensemble average) - average_i H(model_i)
+    """
+    epsilon = 1e-12
+    H_ensemble = -np.sum(ensemble_probs * np.log(ensemble_probs + epsilon), axis=1)
+    individual_entropies = []
+    for probs in ensemble_outputs:
+        H_ind = -np.sum(probs * np.log(probs + epsilon), axis=1)
+        individual_entropies.append(H_ind)
+    individual_entropies = np.stack(individual_entropies, axis=0)
+    avg_ind_entropy = np.mean(individual_entropies, axis=0)
+    MI = H_ensemble - avg_ind_entropy
+    return MI
+
+def plot_mutual_information(MI, bins=20, dataset_title="", trained_dataset=""):
+    """
+    Plots the histogram of mutual information (MI) values.
+    """
+    plt.figure(figsize=(8,4))
+    plt.hist(MI, bins=bins, alpha=0.7, color='purple', density=True)
+    plt.xlabel('Mutual Information')
+    plt.ylabel('Density')
+    plt.title(f"Mutual Information Histogram ({dataset_title}) - Trained on {trained_dataset}")
+    plt.show()
+
+def plot_ensemble_variance(ensemble_outputs, bins=20, dataset_title="", trained_dataset=""):
+    """
+    Computes and plots the mean variance of the ensemble predictions for each sample.
+    
+    The variance is computed across models for each class and then averaged over classes.
+    """
+    ensemble_outputs_arr = np.stack(ensemble_outputs, axis=0)
+    variance_per_sample = np.var(ensemble_outputs_arr, axis=0)
+    mean_variance = np.mean(variance_per_sample, axis=1)
+    plt.figure(figsize=(8,4))
+    plt.hist(mean_variance, bins=bins, alpha=0.7, color='orange', density=True)
+    plt.xlabel('Mean Variance across Ensemble Models')
+    plt.ylabel('Density')
+    plt.title(f"Ensemble Variance Histogram ({dataset_title}) - Trained on {trained_dataset}")
+    plt.show()
+
+# ------------------------------------------------------------------------------
+# Evaluation Function (with Dataset and Training Info)
+# ------------------------------------------------------------------------------
+
+def evaluate_models(test_embeddings, test_labels, student_model, ensemble_models, device, batch_size=32, dataset_key="test_em", trained_dataset="SST2"):
+    """
+    Evaluates three models on the given test dataset and generates uncertainty plots,
+    while displaying the evaluation dataset name and the training dataset in each graph.
+    
+    Models evaluated:
+      1. Student model.
+      2. An individual model (first model from the ensemble).
+      3. The ensemble (averaged softmax probabilities from all ensemble models).
+    
+    The following combined plots are generated:
+      - Reliability Diagram (with dataset info)
+      - Side-by-side Confidence Histograms (with dataset info)
+      - Side-by-side Entropy Histograms (with dataset info)
+      
+    For the ensemble, additional plots are produced:
+      - Ensemble Variance Histogram
+      - Mutual Information Histogram
+    
     Parameters:
-    - test_embeddings (np.ndarray): The embeddings for the test dataset.
-    - test_labels (np.ndarray): The true labels for the test dataset.
-    - student_model (torch.nn.Module): The student model to evaluate.
-    - ensemble_models (list of torch.nn.Module): A list of models constituting the ensemble.
-    - device (torch.device): The device on which computations are performed.
-    - batch_size (int): Batch size used for DataLoader (default: 32).
-
+      - test_embeddings (np.ndarray): Embeddings for the test dataset.
+      - test_labels (np.ndarray): True labels for the test dataset.
+      - student_model (torch.nn.Module): Student model.
+      - ensemble_models (list of torch.nn.Module): List of ensemble models.
+      - device (torch.device): Device for computation.
+      - batch_size (int): Batch size for DataLoader.
+      - dataset_key (str): Key identifying the evaluation dataset (e.g., "imdb_train_em", "test_em").
+      - trained_dataset (str): Indicates the dataset the models were trained on (e.g., "SST2" or "IMDB").
+    
     Returns:
-    - metrics_dict (dict): A dictionary containing the evaluation metrics for
-      'student', 'individual', and 'ensemble' models.
-      Each entry is a tuple: (accuracy, nll, ece, f1)
+      - metrics_dict (dict): Dictionary with evaluation metrics for 'student', 'individual', and 'ensemble'.
+                             Each entry is a tuple: (accuracy, nll, ece, f1)
+    
+    Note: This function assumes an external `eval_metrics` function is defined that takes
+          (true_labels, predictions, probabilities, average=...) and returns the desired metrics.
     """
-
+    # Mapping from dataset_key to friendly title.
+    dataset_names_map = {
+        "imdb_train": "IMDB train subset",
+        "imdb_test": "IMDB test subset",
+        "sst2_train": "SST2 train subset",
+        "sst2_test": "SST2 test subset",
+        "cola_train": "CoLa train subset",
+        "cola_test": "CoLa test subset"
+    }
+    dataset_title = dataset_names_map.get(dataset_key, dataset_key)
+    
     # Convert embeddings and labels to tensors.
     test_X = torch.from_numpy(test_embeddings).float()
     test_y = torch.from_numpy(test_labels).long()
-
-    # Optionally create a DataLoader (if batch processing is desired)
     test_dataset = TensorDataset(test_X, test_y)
     test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
-
-    # Convert true labels to a NumPy array for eval_metrics function
+    
+    # True labels as numpy array for evaluation and plotting.
     true_labels = test_y.numpy()
-
-    # Dictionary to store metrics for each model.
+    
     metrics_dict = {}
-
+    probs_dict = {}  # To store probability outputs for combined plotting.
+    
     # -------------------------
-    # Evaluation for Student Model
+    # 1. Student Model Evaluation
     # -------------------------
     student_model.to(device)
     student_model.eval()
     with torch.no_grad():
-        # Here, we run inference on the entire test_X.
         outputs = student_model(test_X.to(device))
-        # Apply softmax to obtain probabilities
-        probs = nn.functional.softmax(outputs, dim=1).cpu().numpy()
-        # Compute predicted classes
-        preds = np.argmax(probs, axis=1)
-        
-        # Compute evaluation metrics (you need to have an eval_metrics function defined)
-        acc, nll, ece, f1 = eval_metrics(true_labels, preds, probs, average='weighted')
+        probs_student = nn.functional.softmax(outputs, dim=1).cpu().numpy()
+        preds_student = np.argmax(probs_student, axis=1)
+        acc, nll, ece, f1 = eval_metrics(true_labels, preds_student, probs_student, average='weighted')
         metrics_dict['student'] = (acc, nll, ece, f1)
-
-    # Print student model metrics (optional)
+        probs_dict['Student'] = probs_student
     print(f"Student -- Accuracy: {acc:.4f}, NLL: {nll:.4f}, ECE: {ece:.4f}, F1 Score: {f1:.4f}")
-
+    
     # -------------------------
-    # Evaluation for an Individual Model (first model in ensemble_models)
+    # 2. Individual Model Evaluation (first model from the ensemble)
     # -------------------------
     individual_model = ensemble_models[0]
     individual_model.to(device)
     individual_model.eval()
     with torch.no_grad():
         outputs = individual_model(test_X.to(device))
-        probs = nn.functional.softmax(outputs, dim=1).cpu().numpy()
-        preds = np.argmax(probs, axis=1)
-        
-    acc, nll, ece, f1 = eval_metrics(true_labels, preds, probs, average='weighted')
+        probs_individual = nn.functional.softmax(outputs, dim=1).cpu().numpy()
+        preds_individual = np.argmax(probs_individual, axis=1)
+    acc, nll, ece, f1 = eval_metrics(true_labels, preds_individual, probs_individual, average='weighted')
     metrics_dict['individual'] = (acc, nll, ece, f1)
-
+    probs_dict['Individual'] = probs_individual
     print(f"Individual -- Accuracy: {acc:.4f}, NLL: {nll:.4f}, ECE: {ece:.4f}, F1 Score: {f1:.4f}")
-
+    
     # -------------------------
-    # Evaluation for the Ensemble Model
+    # 3. Ensemble Model Evaluation
     # -------------------------
-    ensemble_outputs = []
+    ensemble_outputs = []  # To store probability outputs from each ensemble member.
     for model in ensemble_models:
         model.to(device)
         model.eval()
@@ -523,17 +764,38 @@ def evaluate_models(test_embeddings, test_labels, student_model, ensemble_models
             outputs = model(test_X.to(device))
             probs = nn.functional.softmax(outputs, dim=1).cpu().numpy()
             ensemble_outputs.append(probs)
-
+    
     # Average the probabilities from all ensemble models.
     ensemble_probs = np.mean(ensemble_outputs, axis=0)
     ensemble_preds = np.argmax(ensemble_probs, axis=1)
-
     acc, nll, ece, f1 = eval_metrics(true_labels, ensemble_preds, ensemble_probs, average='weighted')
     metrics_dict['ensemble'] = (acc, nll, ece, f1)
-
+    probs_dict['Ensemble'] = ensemble_probs
     print(f"Ensemble -- Accuracy: {acc:.4f}, NLL: {nll:.4f}, ECE: {ece:.4f}, F1 Score: {f1:.4f}")
-
+    
+    # ------------------------------------------------------------------------------
+    # Generate Combined Plots with Dataset and Training Info
+    # ------------------------------------------------------------------------------
+    plot_reliability_diagram_multi(true_labels, probs_dict, model_colors, n_bins=10,
+                                   dataset_title=dataset_title, trained_dataset=trained_dataset)
+    plot_confidence_histogram_side_by_side(probs_dict, model_colors, bins=20,
+                                           dataset_title=dataset_title, trained_dataset=trained_dataset)
+    plot_entropy_histogram_side_by_side(probs_dict, model_colors, bins=20,
+                                        dataset_title=dataset_title, trained_dataset=trained_dataset)
+    
+    # ------------------------------------------------------------------------------
+    # Additional Ensemble-Specific Uncertainty Plots
+    # ------------------------------------------------------------------------------
+    plot_ensemble_variance(ensemble_outputs, bins=20,
+                           dataset_title=dataset_title, trained_dataset=trained_dataset)
+    MI = compute_mutual_information(ensemble_outputs, ensemble_probs)
+    plot_mutual_information(MI, bins=20,
+                            dataset_title=dataset_title, trained_dataset=trained_dataset)
+    
     return metrics_dict
+
+
+
 
 def generate_soft_targets(ensemble_models, train_X):
     all_probs = []
