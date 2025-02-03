@@ -11,6 +11,7 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import accuracy_score, log_loss, f1_score
 from sklearn.calibration import calibration_curve
 
+# Check for GPU
 if torch.backends.mps.is_available():
     device = torch.device('mps')
     print('Using MPS device')
@@ -64,17 +65,13 @@ def eval_metrics(true_labels, preds, probs, average='weighted'):
         - nll: Negative log loss.
         - ece: Expected Calibration Error.
         - f1: F1 score.
-    
-    Notes:
-    --------------------------
-    - This function assumes that the `compute_ece` function is defined or imported from an external package.
-    - If `compute_ece` is not yet defined, you will have to implement this function or find an appropriate library.
     """
+    
     # Compute the accuracy score.
     acc = accuracy_score(true_labels, preds)
     
     # Compute the negative log loss.
-    nll = log_loss(true_labels, probs)
+    nll = log_loss(true_labels, probs) # Formula is
     
     # Compute the Expected Calibration Error using the external compute_ece function.
     ece = compute_ece(probs, true_labels)
@@ -123,40 +120,40 @@ def plot_reliability_diagram(prob_pos, true_labels, n_bins=10):
     print("Bin counts:", bin_counts)
 
 def evaluate_ensemble(models, val_X, val_y):
-        ensemble_outputs = []
-        with torch.no_grad():
-            for m in models:
-                m.eval()
-                outputs = m(val_X.to(device))
-                probs = nn.functional.softmax(outputs, dim=1).cpu().numpy()
-                ensemble_outputs.append(probs)
-        ensemble_probs = np.mean(ensemble_outputs, axis=0)
-        ensemble_preds = np.argmax(ensemble_probs, axis=1)
-        # eval_metrics should return: accuracy, nll, ece, f1
-        acc, nll, ece, f1 = eval_metrics(val_y.numpy(), ensemble_preds, ensemble_probs, average='weighted')
-        return acc, nll, ece, f1
+    ensemble_outputs = []
+    with torch.no_grad():
+        for m in models:
+            m.eval()
+            outputs = m(val_X.to(device))
+            probs = nn.functional.softmax(outputs, dim=1).cpu().numpy()
+            ensemble_outputs.append(probs)
+    ensemble_probs = np.mean(ensemble_outputs, axis=0)
+    ensemble_preds = np.argmax(ensemble_probs, axis=1)
+    # eval_metrics should return: accuracy, nll, ece, f1
+    acc, nll, ece, f1 = eval_metrics(val_y.numpy(), ensemble_preds, ensemble_probs, average='weighted')
+    return acc, nll, ece, f1
 
 def evaluate_ensemble_for_plot(models, val_X):
-        ensemble_probs = []
-        with torch.no_grad():
-            for m in models:
-                m.eval()
-                outputs = m(val_X.to(device))
-                probs = nn.functional.softmax(outputs, dim=1).cpu().numpy()
-                ensemble_probs.append(probs)
-        ensemble_probs = np.stack(ensemble_probs)
-        ensemble_mean = np.mean(ensemble_probs, axis=0)
-        ensemble_var = np.var(ensemble_probs, axis=0)
-        ensemble_entropy = -np.sum(ensemble_mean * np.log(ensemble_mean + 1e-9), axis=1)
-        
-        ensemble_probs = {
-        'probs': ensemble_probs,
-        'mean': ensemble_mean,
-        'var': ensemble_var,
-        'entropy': ensemble_entropy
-        }
-        
-        return ensemble_probs
+    ensemble_probs = []
+    with torch.no_grad():
+        for m in models:
+            m.eval()
+            outputs = m(val_X.to(device))
+            probs = nn.functional.softmax(outputs, dim=1).cpu().numpy()
+            ensemble_probs.append(probs)
+    ensemble_probs = np.stack(ensemble_probs)
+    ensemble_mean = np.mean(ensemble_probs, axis=0)
+    ensemble_var = np.var(ensemble_probs, axis=0)
+    ensemble_entropy = -np.sum(ensemble_mean * np.log(ensemble_mean + 1e-9), axis=1)
+    
+    ensemble_probs = {
+    'probs': ensemble_probs,
+    'mean': ensemble_mean,
+    'var': ensemble_var,
+    'entropy': ensemble_entropy
+    }
+    
+    return ensemble_probs
 
 
 def sst_process_embeddings_and_labels(
